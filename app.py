@@ -3,6 +3,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timedelta
 import socket
+import time
 
 CITIES = {
     "Hà Nội": {"lat": 21.0285, "lon": 105.8542},
@@ -106,6 +107,46 @@ def merge_daily(base, overlay):
             result[key].extend(base[key])
     return result
 
+@st.cache_data(ttl=900)
+def fetch_forecast_15min(lat, lon):
+    now = datetime.now()
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "minutely_15": ["temperature_2m", "relative_humidity_2m", "shortwave_radiation"],
+        "timezone": "Asia/Bangkok"
+    }
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        data = response.json()
+        minutely = data.get("minutely_15", {})
+        if minutely and "time" in minutely:
+            filtered = {"time": [], "temperature_2m": [], "relative_humidity_2m": [], "shortwave_radiation": []}
+            for i in range(len(minutely["time"])):
+                t = datetime.fromisoformat(minutely["time"][i].replace("Z", "+00:00")).replace(tzinfo=None)
+                if t >= now:
+                    filtered["time"].append(minutely["time"][i])
+                    filtered["temperature_2m"].append(minutely["temperature_2m"][i])
+                    filtered["relative_humidity_2m"].append(minutely["relative_humidity_2m"][i])
+                    filtered["shortwave_radiation"].append(minutely["shortwave_radiation"][i])
+                if len(filtered["time"]) >= 24:
+                    break
+            return filtered
+        return minutely
+    return None
+
+def get_weather_icon(temp, radiation):
+    if radiation > 200:
+        return "☀️"
+    elif radiation > 100:
+        return "⛅"
+    elif radiation > 50:
+        return "🌤️"
+    elif temp < 20:
+        return "🌧️"
+    return "☁️"
+
 today = datetime.now().date()
 data = None
 forecast_data = None
@@ -148,6 +189,62 @@ if data:
         else:
             col3.metric("Bức xạ mặt trời", "N/A")
 
+    st.markdown("---")
+    
+    st.subheader("⏱️ Dự báo theo 15 phút (tự động cập nhật)")
+    
+    minutely_data = fetch_forecast_15min(lat, lon)
+    
+    if minutely_data and "time" in minutely_data and len(minutely_data["time"]) > 0:
+        now = datetime.now()
+        minutes_left = 15 - (now.minute % 15)
+        if minutes_left == 15:
+            minutes_left = 0
+        
+        col_info1, col_info2 = st.columns(2)
+        with col_info1:
+            st.info(f"📅 Dữ liệu từ: **{now.strftime('%H:%M')}**")
+        with col_info2:
+            st.info(f"🔄 Cập nhật sau: **{minutes_left} phút**")
+        
+        display_count = min(len(minutely_data["time"]), 12)
+        
+        filtered_times = []
+        filtered_temps = []
+        filtered_humidity = []
+        filtered_radiation = []
+        for i in range(display_count):
+            time_dt = datetime.fromisoformat(minutely_data["time"][i].replace("Z", "+00:00"))
+            filtered_times.append(time_dt.strftime("%H:%M"))
+            filtered_temps.append(minutely_data["temperature_2m"][i])
+            filtered_humidity.append(minutely_data["relative_humidity_2m"][i])
+            filtered_radiation.append(minutely_data["shortwave_radiation"][i])
+        
+        cols = st.columns(6)
+        for i in range(display_count):
+            with cols[i % 6]:
+                st.markdown(f"""
+                <div style="background: white; border-radius: 10px; padding: 15px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; margin-bottom: 10px;">
+                    <div style="font-size: 0.9rem; font-weight: 600; color: #1565c0; margin-bottom: 8px;">{filtered_times[i]}</div>
+                    <div style="font-size: 1.8rem; margin-bottom: 5px;">{get_weather_icon(filtered_temps[i], filtered_radiation[i])}</div>
+                    <div style="font-size: 1.3rem; font-weight: 700; color: #2c3e50;">{filtered_temps[i]:.1f}°C</div>
+                    <div style="font-size: 0.8rem; color: #7f8c8d; margin-top: 4px;">💧 {filtered_humidity[i]:.0f}%</div>
+                    <div style="font-size: 0.8rem; color: #7f8c8d;">☀️ {filtered_radiation[i]:.0f} W/m²</div>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        df_15min = pd.DataFrame({
+            "Thời gian": filtered_times,
+            "Nhiệt độ (°C)": filtered_temps,
+            "Độ ẩm (%)": filtered_humidity,
+            "Bức xạ (W/m²)": filtered_radiation
+        })
+        
+        st.line_chart(df_15min.set_index("Thời gian")[["Nhiệt độ (°C)", "Độ ẩm (%)"]])
+        st.area_chart(df_15min.set_index("Thời gian")["Bức xạ (W/m²)"])
+    else:
+        st.warning("Không thể tải dữ liệu dự báo 15 phút")
+    
     st.markdown("---")
     st.subheader(f"📊 Dữ liệu chi tiết")
 
@@ -222,3 +319,16 @@ except Exception:
     ```
     Người dùng khác trong mạng nội bộ truy cập: `http://<địa-chỉ-IP>:8501`
     """)
+
+st.markdown("---")
+st.caption("⏱️ Dự báo 15 phút tự động cập nhật mỗi 15 phút")
+
+now = datetime.now()
+minutes_left = 15 - (now.minute % 15)
+if minutes_left == 15:
+    minutes_left = 0
+st.info(f"🔄 Cập nhật tiếp theo sau: **{minutes_left} phút**")
+
+time.sleep(1)
+if st.button("🔄 Bật tự động cập nhật", key="auto_refresh"):
+    st.rerun()

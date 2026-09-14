@@ -333,6 +333,107 @@
             border: 1px solid #bbdefb;
         }
 
+        .forecast15-container {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border: 2px solid #90caf9;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .forecast15-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .forecast15-header h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: var(--primary-dark);
+        }
+
+        .forecast15-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-light);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .forecast15-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .forecast15-card {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid var(--border);
+            transition: transform 0.2s;
+        }
+
+        .forecast15-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .forecast15-card .time {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+
+        .forecast15-card .icon {
+            font-size: 1.8rem;
+            margin-bottom: 5px;
+        }
+
+        .forecast15-card .temp {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .forecast15-card .detail {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-top: 4px;
+        }
+
+        .countdown-bar {
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .countdown-bar .progress {
+            height: 100%;
+            background: var(--primary);
+            border-radius: 2px;
+            transition: width 1s linear;
+        }
+
         .loading-overlay {
             display: none;
             position: fixed;
@@ -551,6 +652,25 @@
             </div>
         </div>
 
+        <!-- Dự Báo 15 Phút -->
+        <div class="forecast15-container" id="forecast15Container">
+            <div class="forecast15-header">
+                <h3>⏱️ Dự Báo Theo 15 Phút</h3>
+                <div class="forecast15-status">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span id="statusText">Đang cập nhật...</span>
+                </div>
+            </div>
+            <div class="forecast15-cards" id="forecast15Cards">
+                <div style="text-align: center; color: var(--text-light); padding: 20px;">
+                    Nhấn "Tải Dữ Liệu" để xem dự báo 15 phút
+                </div>
+            </div>
+            <div class="countdown-bar">
+                <div class="progress" id="countdownProgress" style="width: 100%;"></div>
+            </div>
+        </div>
+
         <!-- Biểu Đồ -->
         <div class="charts-grid">
             <div class="chart-card">
@@ -604,6 +724,8 @@
     let currentData = null;
     let currentLabels = [];
     let currentDatasets = { labels: [], temp: [], humidity: [], radiation: [] };
+    let forecast15Interval = null;
+    let countdownInterval = null;
 
     const today = new Date();
     const yesterday = new Date(today);
@@ -749,6 +871,7 @@
             document.getElementById('downloadBtn').disabled = false;
             document.getElementById('downloadBtn2').disabled = false;
             showNotification('Tải dữ liệu thành công!');
+            load15MinForecast();
         } catch (error) {
             showNotification('Không thể tải dữ liệu thời tiết!', 'error');
             console.error(error);
@@ -881,8 +1004,173 @@
         showNotification('Đã tải file CSV thành công!');
     }
 
+    function getNext15MinInterval() {
+        const now = new Date();
+        const minutes = now.getMinutes();
+        const hours = now.getHours();
+        const next15 = Math.ceil((minutes + 1) / 15) * 15;
+        const nextTime = new Date(now);
+        if (next15 >= 60) {
+            nextTime.setHours(hours + 1, 0, 0, 0);
+        } else {
+            nextTime.setMinutes(next15, 0, 0);
+        }
+        return nextTime;
+    }
+
+    function formatTime15(date) {
+        return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function getWeatherIcon(temp, radiation) {
+        if (radiation > 200) return '☀️';
+        if (radiation > 100) return '⛅';
+        if (radiation > 50) return '🌤️';
+        if (temp < 20) return '🌧️';
+        return '☁️';
+    }
+
+    async function fetch15MinForecast(coords) {
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&minutely_15=temperature_2m,relative_humidity_2m,shortwave_radiation&timezone=Asia%2FBangkok`;
+
+        try {
+            const resp = await fetch(url);
+            const data = await resp.json();
+            const minutely = data.minutely_15;
+            if (!minutely || !minutely.time) return null;
+            
+            const now = new Date();
+            const filtered = { time: [], temperature_2m: [], relative_humidity_2m: [], shortwave_radiation: [] };
+            
+            for (let i = 0; i < minutely.time.length; i++) {
+                const t = new Date(minutely.time[i]);
+                if (t >= now) {
+                    filtered.time.push(minutely.time[i]);
+                    filtered.temperature_2m.push(minutely.temperature_2m[i]);
+                    filtered.relative_humidity_2m.push(minutely.relative_humidity_2m[i]);
+                    filtered.shortwave_radiation.push(minutely.shortwave_radiation[i]);
+                }
+                if (filtered.time.length >= 24) break;
+            }
+            
+            return filtered;
+        } catch (error) {
+            console.error('Error fetching 15-min forecast:', error);
+            return null;
+        }
+    }
+
+    function render15MinForecast(minutelyData) {
+        const container = document.getElementById('forecast15Cards');
+        console.log('Rendering 15-min forecast:', minutelyData);
+        
+        if (!minutelyData || !minutelyData.time || minutelyData.time.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: var(--text-light); padding: 20px;">Không có dữ liệu dự báo 15 phút</div>';
+            return;
+        }
+
+        const now = new Date();
+        const cards = [];
+
+        for (let i = 0; i < minutelyData.time.length; i++) {
+            const time = new Date(minutelyData.time[i]);
+            if (time < now) continue;
+            
+            const temp = minutelyData.temperature_2m[i];
+            const humidity = minutelyData.relative_humidity_2m[i];
+            const radiation = minutelyData.shortwave_radiation[i];
+            const icon = getWeatherIcon(temp, radiation);
+
+            cards.push(`
+                <div class="forecast15-card">
+                    <div class="time">${formatTime15(time)}</div>
+                    <div class="icon">${icon}</div>
+                    <div class="temp">${temp !== null ? temp.toFixed(1) : '--'}°C</div>
+                    <div class="detail">💧 ${humidity !== null ? humidity.toFixed(0) : '--'}%</div>
+                    <div class="detail">☀️ ${radiation !== null ? radiation.toFixed(0) : '--'} W/m²</div>
+                </div>
+            `);
+            
+            if (cards.length >= 12) break;
+        }
+
+        console.log('Cards created:', cards.length);
+        if (cards.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: var(--text-light); padding: 20px;">Không có dữ liệu dự báo 15 phút</div>';
+        } else {
+            container.innerHTML = cards.join('');
+        }
+    }
+
+    function updateCountdown() {
+        const now = new Date();
+        const totalMs = 15 * 60 * 1000;
+        const progress = ((totalMs - (now.getTime() % totalMs)) / totalMs) * 100;
+
+        const progressBar = document.getElementById('countdownProgress');
+        if (progressBar) {
+            progressBar.style.width = progress + '%';
+        }
+
+        const statusText = document.getElementById('statusText');
+        if (statusText) {
+            const minutesLeft = 15 - (now.getMinutes() % 15);
+            statusText.textContent = minutesLeft === 15 ? 'Cập nhật ngay' : `Cập nhật sau ${minutesLeft} phút`;
+        }
+    }
+
+    async function load15MinForecast() {
+        const coords = getCoordinates();
+        if (!coords) {
+            console.log('No coordinates available');
+            return;
+        }
+
+        console.log('Loading 15-min forecast for:', coords);
+        const minutelyData = await fetch15MinForecast(coords);
+        console.log('Received data:', minutelyData);
+        render15MinForecast(minutelyData);
+
+        document.getElementById('statusText').textContent = 'Đã cập nhật';
+        setTimeout(() => {
+            document.getElementById('statusText').textContent = 'Đang cập nhật...';
+        }, 2000);
+    }
+
+    function startAutoRefresh15Min() {
+        if (forecast15Interval) clearInterval(forecast15Interval);
+        if (countdownInterval) clearInterval(countdownInterval);
+
+        load15MinForecast();
+        updateCountdown();
+
+        countdownInterval = setInterval(updateCountdown, 1000);
+        
+        const nextInterval = getNext15MinInterval();
+        const msUntilNext = nextInterval.getTime() - new Date().getTime();
+        
+        setTimeout(() => {
+            load15MinForecast();
+            forecast15Interval = setInterval(() => {
+                load15MinForecast();
+            }, 15 * 60 * 1000);
+        }, msUntilNext);
+    }
+
+    function stopAutoRefresh15Min() {
+        if (forecast15Interval) {
+            clearInterval(forecast15Interval);
+            forecast15Interval = null;
+        }
+        if (countdownInterval) {
+            clearInterval(countdownInterval);
+            countdownInterval = null;
+        }
+    }
+
     onModeChange();
     loadWeatherData();
+    startAutoRefresh15Min();
 </script>
 
 </body>
