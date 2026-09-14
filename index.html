@@ -1105,7 +1105,7 @@
         const statusText = document.getElementById('statusText');
         if (statusText) {
             const minutesLeft = 15 - (now.getMinutes() % 15);
-            statusText.textContent = minutesLeft === 15 ? 'Cập nhật ngay' : `Cập nhật sau ${minutesLeft} phút`;
+            statusText.textContent = `Cập nhật sau ${minutesLeft} phút`;
         }
     }
 

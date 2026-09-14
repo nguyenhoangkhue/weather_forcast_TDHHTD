@@ -197,8 +197,6 @@ if data:
     if minutely_data and "time" in minutely_data and len(minutely_data["time"]) > 0:
         now = datetime.now()
         minutes_left = 15 - (now.minute % 15)
-        if minutes_left == 15:
-            minutes_left = 0
         
         col_info1, col_info2 = st.columns(2)
         with col_info1:
@@ -300,8 +298,6 @@ st.caption("⏱️ Dự báo 15 phút tự động cập nhật mỗi 15 phút")
 
 now = datetime.now()
 minutes_left = 15 - (now.minute % 15)
-if minutes_left == 15:
-    minutes_left = 0
 st.info(f"🔄 Cập nhật tiếp theo sau: **{minutes_left} phút**")
 
 time.sleep(1)
