@@ -2,7 +2,6 @@ import streamlit as st
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
-import socket
 import time
 
 CITIES = {
@@ -295,30 +294,6 @@ else:
     st.error("Không thể lấy dữ liệu từ API. Vui lòng kiểm tra lại kết nối hoặc tham số chọn!")
 
 st.markdown("---")
-st.subheader("🌐 Chia sẻ nội bộ")
-
-try:
-    hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    st.info(f"""
-    **Để chia sẻ ứng dụng này với người dùng khác trong mạng nội bộ:**
-
-    1. Khởi động Streamlit trên máy chủ:
-       ```
-       streamlit run app.py --server.address 0.0.0.0 --server.port 8501
-       ```
-    2. Người dùng khác truy cập: `http://{local_ip}:8501`
-
-    **Địa chỉ IP máy chủ hiện tại:** `{local_ip}`
-    """)
-except Exception:
-    st.info("""
-    **Để chia sẻ ứng dụng này:**
-    ```
-    streamlit run app.py --server.address 0.0.0.0 --server.port 8501
-    ```
-    Người dùng khác trong mạng nội bộ truy cập: `http://<địa-chỉ-IP>:8501`
-    """)
 
 st.markdown("---")
 st.caption("⏱️ Dự báo 15 phút tự động cập nhật mỗi 15 phút")
